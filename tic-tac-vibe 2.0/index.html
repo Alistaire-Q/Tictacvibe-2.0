@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tic Tac Vibe</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; padding: 0;
+            background: radial-gradient(circle at bottom, #1b2735 0%, #090a0f 100%);
+            color: #fff; font-family: 'Courier New', Courier, monospace;
+            height: 100vh; overflow: hidden; display: flex; align-items: center; justify-content: center;
+        }
+        .app-container { width: 100%; max-width: 450px; height: 100vh; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+        .stars { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: transparent url('https://cdn.pixabay.com/photo/2016/01/27/15/25/space-1164579_960_720.png') repeat top center; z-index: 0; animation: move-twink-back 200s linear infinite; opacity: 0.5; }
+        @keyframes move-twink-back { from { background-position: 0 0; } to { background-position: -10000px 5000px; } }
+        .screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; transition: opacity 1s ease; padding: 25px; }
+        .hidden { opacity: 0; pointer-events: none; z-index: -1; }
+        .glass-box { background: rgba(9, 10, 15, 0.9); padding: 30px; border-radius: 15px; border: 1px solid #fff; box-shadow: 0 0 15px #fff; width: 100%; backdrop-filter: blur(5px); text-align: center; }
+        h1 { font-size: 2.2rem; text-transform: uppercase; text-shadow: 0 0 10px #fff; margin-bottom: 20px; }
+        .btn { background: transparent; border: 2px solid #fff; color: #fff; padding: 14px; font-size: 1rem; font-weight: bold; margin: 10px 0; border-radius: 30px; cursor: pointer; box-shadow: 0 0 10px #fff; text-transform: uppercase; width: 100%; font-family: inherit; transition: 0.3s; }
+        .btn:hover:not(:disabled) { background: #fff; color: #000; box-shadow: 0 0 20px #fff; }
+        .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        input { width: 100%; padding: 14px; margin: 12px 0; background: rgba(255,255,255,0.1); border: 1px solid #fff; color: #fff; text-align: center; border-radius: 8px; font-family: inherit; }
+        .board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 100%; max-width: 320px; padding: 12px; border: 2px solid #fff; border-radius: 15px; }
+        .cell { background: rgba(255,255,255,0.05); aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; font-size: 2.8rem; font-weight: bold; cursor: pointer; border-radius: 8px; }
+        .cell.x, .cell.o { color: #fff; text-shadow: 0 0 15px #fff; }
+        .score-info { display: flex; gap: 25px; margin-bottom: 15px; font-size: 1.2rem; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="stars"></div>
+        <div id="splash-screen" class="screen"><h1>TIC TAC VIBE</h1></div>
+
+        <div id="auth-screen" class="screen hidden">
+            <div class="glass-box">
+                <h2>LOG IN</h2>
+                <input type="email" id="email" placeholder="Email">
+                <input type="password" id="password" placeholder="Password">
+                <button class="btn" onclick="handleAuth('login')">Masuk</button>
+                <button class="btn" onclick="handleAuth('signup')">Daftar</button>
+            </div>
+        </div>
+
+        <div id="dashboard-screen" class="screen hidden">
+            <h1>DASHBOARD</h1>
+            <p id="user-display" style="font-size: 0.8rem; opacity: 0.7; margin-bottom: 25px;"></p>
+            <button class="btn" onclick="switchScreen('pvp-menu-screen')">PVP ONLINE</button>
+            <button class="btn" onclick="startAiGame()">VS AI</button>
+            <button class="btn" onclick="logout()" style="border-style: dotted;">KELUAR</button>
+        </div>
+
+        <div id="pvp-menu-screen" class="screen hidden">
+            <div class="glass-box">
+                <h2>MODE PVP</h2>
+                <button class="btn" onclick="switchScreen('host-screen')">BUAT SERVER</button>
+                <button class="btn" onclick="switchScreen('join-screen')">CARI SERVER</button>
+                <button class="btn" onclick="switchScreen('dashboard-screen')" style="border-style: dotted;">KEMBALI</button>
+            </div>
+        </div>
+
+        <div id="lobby-screen" class="screen hidden">
+            <div class="glass-box">
+                <h2 id="lobby-room-id">ROOM: ---</h2>
+                <p>Host: <span id="lobby-host">-</span></p>
+                <p>Guest: <span id="lobby-guest">Mencari...</span></p>
+                <div id="host-ui" class="hidden">
+                    <button class="btn" id="start-btn" onclick="updateStatus('playing')" disabled>MULAI GAME</button>
+                    <button class="btn" onclick="deleteRoom()">BUBARKAN</button>
+                </div>
+                <div id="guest-ui" class="hidden">
+                    <button class="btn" onclick="leaveRoom()">KELUAR</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="game-screen" class="screen hidden">
+            <div class="score-info"><span>X: <span id="score-x">0</span></span> | <span>O: <span id="score-o">0</span></span></div>
+            <p id="turn-display" style="font-weight: bold;"></p>
+            <div class="board" id="board-ui">
+                <div class="cell" data-index="0"></div><div class="cell" data-index="1"></div><div class="cell" data-index="2"></div>
+                <div class="cell" data-index="3"></div><div class="cell" data-index="4"></div><div class="cell" data-index="5"></div>
+                <div class="cell" data-index="6"></div><div class="cell" data-index="7"></div><div class="cell" data-index="8"></div>
+            </div>
+            <button class="btn" style="max-width: 250px; margin-top: 20px;" onclick="leaveRoom()">EXIT</button>
+        </div>
+
+        <div id="result-screen" class="screen hidden">
+            <div class="glass-box">
+                <h1 id="result-text">HASIL</h1>
+                <button class="btn" onclick="goBackToLobby()">KEMBALI KE LOBBY</button>
+                <button class="btn" onclick="leaveRoom()">TINGGALKAN PERMAINAN</button>
+            </div>
+        </div>
+
+        <div id="host-screen" class="screen hidden">
+            <div class="glass-box">
+                <h2>BUAT SERVER</h2>
+                <input type="text" id="host-code" placeholder="KODE SERVER">
+                <input type="number" id="target-round" value="2" min="1">
+                <button class="btn" onclick="initHost()">BUAT LOBBY</button>
+                <button class="btn" onclick="switchScreen('pvp-menu-screen')">BATAL</button>
+            </div>
+        </div>
+        <div id="join-screen" class="screen hidden">
+            <div class="glass-box">
+                <h2>CARI SERVER</h2>
+                <input type="text" id="join-code" placeholder="KODE">
+                <button class="btn" onclick="initGuest()">GABUNG</button>
+                <button class="btn" onclick="switchScreen('pvp-menu-screen')">BATAL</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const _URL = 'https://rehkagqdryrnxzfxxswk.supabase.co';
+        const _KEY = 'sb_publishable_nZcyd8ThsPPqalUf2Bj25g_cBSRKZ11';
+        const _client = window.supabase.createClient(_URL, _KEY);
+
+        let userEmail = "", myRole = "", currentRoom = null, roomCode = "", playMode = "pvp", realtimeChannel = null;
+        let gameActive = false;
+
+        function switchScreen(id) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+            document.getElementById(id).classList.remove('hidden');
+        }
+
+        window.onload = async () => {
+            setTimeout(async () => {
+                const { data } = await _client.auth.getSession();
+                if (data.session) {
+                    userEmail = data.session.user.email;
+                    document.getElementById('user-display').innerText = userEmail;
+                    switchScreen('dashboard-screen');
+                } else switchScreen('auth-screen');
+            }, 5000);
+        };
+
+        async function handleAuth(mode) {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            if(mode === 'login') await _client.auth.signInWithPassword({ email, password });
+            else await _client.auth.signUp({ email, password });
+            location.reload();
+        }
+
+        async function logout() { await _client.auth.signOut(); location.reload(); }
+
+        // --- MULTIPLAYER LOGIC ---
+        async function initHost() {
+            roomCode = document.getElementById('host-code').value.toUpperCase();
+            if(!roomCode) return;
+            playMode = "pvp";
+            const rounds = document.getElementById('target-round').value;
+            const { error } = await _client.from('game_rooms').insert([{
+                room_code: roomCode, host: userEmail, target_rounds: rounds,
+                status: 'waiting', board_state: Array(9).fill(""), current_turn: 'X', host_score: 0, guest_score: 0
+            }]);
+            if(!error) { myRole = "host"; startListening(); }
+            else alert("Kode error/dipakai");
+        }
+
+        async function initGuest() {
+            roomCode = document.getElementById('join-code').value.toUpperCase();
+            playMode = "pvp";
+            const { data } = await _client.from('game_rooms').select('*').eq('room_code', roomCode).eq('status', 'waiting').single();
+            if(data) {
+                await _client.from('game_rooms').update({ guest: userEmail }).eq('room_code', roomCode);
+                myRole = "guest";
+                startListening();
+            } else alert("Server tidak ditemukan.");
+        }
+
+        function startListening() {
+            switchScreen('lobby-screen');
+            document.getElementById('lobby-room-id').innerText = `ROOM: ${roomCode}`;
+            if(myRole === 'host') { document.getElementById('host-ui').classList.remove('hidden'); document.getElementById('guest-ui').classList.add('hidden'); }
+            else { document.getElementById('guest-ui').classList.remove('hidden'); document.getElementById('host-ui').classList.add('hidden'); }
+            
+            realtimeChannel = _client.channel(`room_${roomCode}`, { config: { presence: { key: userEmail } } })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rooms', filter: `room_code=eq.${roomCode}` }, payload => syncUI(payload.new))
+            .on('presence', { event: 'leave' }, ({ leftPresences }) => {
+                if (!gameActive || playMode !== "pvp") return;
+                const opponentLeft = leftPresences.some(p => p.key !== userEmail);
+                if (opponentLeft) {
+                    alert("Lawan meninggalkan koordinat! Menang WO");
+                    handleForcedWin();
+                }
+            })
+            .subscribe(async (status) => {
+                if (status === 'SUBSCRIBED') await realtimeChannel.track({ user: userEmail });
+            });
+
+            _client.from('game_rooms').select('*').eq('room_code', roomCode).single().then(({data}) => syncUI(data));
+        }
+
+        async function handleForcedWin() {
+            gameActive = false;
+            let hS = currentRoom.host_score;
+            let gS = currentRoom.guest_score;
+            if (myRole === 'host') hS = currentRoom.target_rounds;
+            else gS = currentRoom.target_rounds;
+            await _client.from('game_rooms').update({ host_score: hS, guest_score: gS, status: 'finished' }).eq('room_code', roomCode);
+        }
+
+        function syncUI(data) {
+            if(!data && playMode === "pvp") { alert("Server Bubar"); location.reload(); return; }
+            currentRoom = data;
+            document.getElementById('lobby-host').innerText = data.host;
+            document.getElementById('lobby-guest').innerText = data.guest || "Menunggu...";
+            if(myRole === 'host') document.getElementById('start-btn').disabled = !data.guest;
+            
+            if(data.status === 'playing') { gameActive = true; switchScreen('game-screen'); updateBoard(data); }
+            else if(data.status === 'finished') { gameActive = false; showFinalResult(data); }
+            else if(data.status === 'waiting') { gameActive = false; switchScreen('lobby-screen'); }
+        }
+
+        // --- GAME ENGINE ---
+        function updateBoard(data) {
+            const cells = document.querySelectorAll('.cell');
+            const isX = data.current_turn === 'X';
+            const canMove = (playMode === "ai" && isX) || (playMode === "pvp" && ((myRole === 'host' && isX) || (myRole === 'guest' && !isX)));
+            document.getElementById('turn-display').innerText = `GILIRAN: ${data.current_turn} ${canMove ? '(KAMU)' : ''}`;
+            document.getElementById('score-x').innerText = data.host_score;
+            document.getElementById('score-o').innerText = data.guest_score;
+            cells.forEach((cell, i) => {
+                cell.innerText = data.board_state[i];
+                cell.className = `cell ${data.board_state[i].toLowerCase()}`;
+                cell.onclick = () => { if(canMove && data.board_state[i] === "") processMove(i, data.current_turn); };
+            });
+        }
+
+        async function processMove(idx, symbol) {
+            let nextBoard = [...currentRoom.board_state];
+            nextBoard[idx] = symbol;
+            currentRoom.board_state = nextBoard;
+            updateBoard(currentRoom);
+            const winner = checkWin(nextBoard);
+
+            if(playMode === "pvp") {
+                if(winner) {
+                    let hS = currentRoom.host_score, gS = currentRoom.guest_score;
+                    if(winner === 'X') hS++; else if(winner === 'O') gS++;
+                    const done = (hS >= currentRoom.target_rounds || gS >= currentRoom.target_rounds);
+                    setTimeout(async () => {
+                        await _client.from('game_rooms').update({ board_state: Array(9).fill(""), current_turn: 'X', host_score: hS, guest_score: gS, status: done ? 'finished' : 'playing' }).eq('room_code', roomCode);
+                    }, 1500);
+                } else {
+                    await _client.from('game_rooms').update({ board_state: nextBoard, current_turn: symbol === 'X' ? 'O' : 'X' }).eq('room_code', roomCode);
+                }
+            } else {
+                if(winner) {
+                    if(winner === 'X') currentRoom.host_score++; else if(winner === 'O') currentRoom.guest_score++;
+                    setTimeout(() => { currentRoom.board_state = Array(9).fill(""); currentRoom.current_turn = 'X'; updateBoard(currentRoom); }, 1500);
+                } else { currentRoom.current_turn = 'O'; updateBoard(currentRoom); setTimeout(botMove, 500); }
+            }
+        }
+
+        // --- AI MINIMAX ---
+        function startAiGame() {
+            playMode = "ai"; myRole = "host";
+            currentRoom = { host: "Player", guest: "AI", host_score: 0, guest_score: 0, board_state: Array(9).fill(""), current_turn: 'X', status: 'playing' };
+            switchScreen('game-screen');
+            updateBoard(currentRoom);
+        }
+
+        function botMove() {
+            const best = minimax(currentRoom.board_state, 'O').index;
+            currentRoom.board_state[best] = 'O';
+            const winner = checkWin(currentRoom.board_state);
+            updateBoard(currentRoom);
+            if(winner) {
+                if(winner === 'O') currentRoom.guest_score++;
+                setTimeout(() => { currentRoom.board_state = Array(9).fill(""); currentRoom.current_turn = 'X'; updateBoard(currentRoom); }, 1500);
+            } else { currentRoom.current_turn = 'X'; updateBoard(currentRoom); }
+        }
+
+        function minimax(board, player) {
+            const avail = board.map((v, i) => v === "" ? i : null).filter(v => v !== null);
+            const win = checkWin(board);
+            if(win === 'X') return { score: -10 };
+            if(win === 'O') return { score: 10 };
+            if(avail.length === 0) return { score: 0 };
+            const moves = [];
+            for(let i=0; i<avail.length; i++) {
+                const move = { index: avail[i] };
+                board[avail[i]] = player;
+                move.score = minimax(board, player === 'O' ? 'X' : 'O').score;
+                board[avail[i]] = "";
+                moves.push(move);
+            }
+            let bestMove;
+            if(player === 'O') { let bS = -Infinity; for(let m of moves) { if(m.score > bS) { bS = m.score; bestMove = m; } } }
+            else { let bS = Infinity; for(let m of moves) { if(m.score < bS) { bS = m.score; bestMove = m; } } }
+            return bestMove;
+        }
+
+        function checkWin(b) {
+            const wins = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+            for(let w of wins) { if(b[w[0]] && b[w[0]]===b[w[1]] && b[w[0]]===b[w[2]]) return b[w[0]]; }
+            return b.includes("") ? null : "draw";
+        }
+
+        function showFinalResult(data) {
+            switchScreen('result-screen');
+            const hostWin = data.host_score > data.guest_score;
+            const iWin = (myRole === 'host' && hostWin) || (myRole === 'guest' && !hostWin);
+            document.getElementById('result-text').innerText = iWin ? "MISI SELESAI: KAMU MENANG! " : "MISI SELESAI: KAMU KALAH";
+        }
+
+        async function goBackToLobby() {
+            // PERBAIKAN: Jika Host klik kembali ke Lobby, status ganti ke waiting dan reset skor
+            if (myRole === 'host') {
+                await _client.from('game_rooms').update({ status: 'waiting', host_score: 0, guest_score: 0, board_state: Array(9).fill("") }).eq('room_code', roomCode);
+            } else {
+                // Guest hanya menunggu perubahan status di database dari Host
+                switchScreen('lobby-screen');
+            }
+        }
+
+        async function updateStatus(s) { await _client.from('game_rooms').update({ status: s }).eq('room_code', roomCode); }
+        async function deleteRoom() { await _client.from('game_rooms').delete().eq('room_code', roomCode); location.reload(); }
+
+        async function leaveRoom() { 
+            if(playMode === "ai") location.reload();
+            else if(myRole === 'host') deleteRoom();
+            else {
+                // Guest keluar: Hapus email guest dari database agar lobby room kosong lagi
+                await _client.from('game_rooms').update({ guest: null, status: 'waiting' }).eq('room_code', roomCode);
+                location.reload();
+            }
+        }
+    </script>
+</body>
+</html>
